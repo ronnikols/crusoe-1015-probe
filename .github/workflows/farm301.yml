@@ -1,0 +1,35 @@
+name: farm301
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: минуты на воркера
+        default: "55"
+      workers:
+        description: сколько воркеров
+        default: "3"
+
+jobs:
+  farm:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        worker: ${{ fromJSON(format('[{0},{1},{2},{3},{4},{5}]', 1, 2, 3, 4, 5, 6)) }}
+    steps:
+      - name: Setup
+        run: |
+          sudo apt-get -qq update >/dev/null 2>&1 || true
+          google-chrome --version || (sudo apt-get -qq install -y google-chrome-stable >/dev/null 2>&1 || true)
+          pip install -q websockets requests 2>&1 | tail -1 || true
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Farm loop
+        env:
+          GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
+          WORKER: w${{ matrix.worker }}
+          MINUTES: ${{ github.event.inputs.minutes }}
+        run: |
+          python3 -c "import ast; ast.parse(open('farm301.py').read()); print('PY OK')" 
+          gh api user --jq login || echo "gh auth check failed"
+          python3 farm301.py
