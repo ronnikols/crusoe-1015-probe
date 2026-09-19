@@ -1,0 +1,32 @@
+name: probe
+on:
+  workflow_dispatch:
+    inputs:
+      tok:
+        description: turnstile token
+        required: true
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: prospects POST from Azure IP
+        run: |
+          curl -s https://check.torproject.org/api/ip || true
+          python3 - <<'PYEOF'
+          import requests, random, string, os
+          rnd = lambda n: ''.join(random.choices(string.ascii_lowercase+string.digits, k=n))
+          tok = os.environ["TOK"]
+          s = requests.Session()
+          s.headers.update({"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
+                            "Origin": "https://console.crusoecloud.com", "Referer": "https://console.crusoecloud.com/", "Accept": "application/json"})
+          r = s.get("https://console.crusoecloud.com/api/v1", timeout=30)
+          print("GET /api/v1:", r.status_code, "csrf:", bool(r.headers.get("x-csrf-token")))
+          csrf = r.headers.get("x-csrf-token")
+          for i in range(3):
+              rr = s.post("https://console.crusoecloud.com/api/v1/organizations/prospects",
+                  json={"email": "az" + rnd(9) + "@spam4.me", "company": "Az Test Co", "source": "portal", "referral": "", "use_case": "cloud", "cf-turnstile-response": tok},
+                  headers={"X-CSRF-Token": csrf}, timeout=30)
+              print(f"AZ POST #{i}:", rr.status_code, rr.text[:90])
+          PYEOF
+        env:
+          TOK: ${{ github.event.inputs.tok }}
