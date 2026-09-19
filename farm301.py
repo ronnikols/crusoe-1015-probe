@@ -1,28 +1,17 @@
 #!/usr/bin/env python3
-"""farm301: crusoe-воркер для GitHub Actions (Azure IP — вне 1015-лимитов CF).
-Сам решает turnstile локальным chrome (CDP), весь флоу чистым requests.
-Ключи: в локальный файл + пуш в приватный dump-репо (PUSH_TOKEN)."""
-import base64, json, os, random, re, string, subprocess, sys, threading, time
+"""farm301 v2: crusoe-воркер GitHub Actions. Токены тянет из публичного raw-файла
+(домашний tokenfarm решает turnstile). Весь флоу с Azure IP — вне 1015-лимитов."""
+import base64, json, os, random, re, string, subprocess, sys, time
 import requests
-import websockets, asyncio
 
 CONSOLE = "https://console.crusoecloud.com"
 UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36"
-CDP = "http://127.0.0.1:9222"
-OUT = os.environ.get("OUT", "farm301_keys.txt")
-WORKER = os.environ.get("WORKER", "w0")
-MINUTES = int(os.environ.get("MINUTES", "60"))
+FEED = os.environ.get("FEED", "https://raw.githubusercontent.com/ronnikols/crusoe-1015-probe/master/tokens.txt")
 DUMP = os.environ.get("DUMP", "ronnikols/crusoe-farm-dump")
-PUSH = os.environ.get("PUSH_TOKEN", "")
+GH_TOKEN = os.environ.get("GH_TOKEN", "")
+WORKER = os.environ.get("WORKER", "w0")
+MINUTES = int(os.environ.get("MINUTES", "55"))
 MAILS = [("tmpl", "https://tempmail.plus"), ("mercure", "https://api.mail.tm")]
-SKEY = "0x4AAAAAAEuX_Aa_eBQah2V0"
-
-stats = {"ok": 0, "alive": 0, "attempts": 0, "fails": {}}
-LOCK = threading.Lock()
-PROV_LOCK = threading.Lock()
-PROV_LAST = {}
-PROV_MIN = {"mercure": 0.15, "tmpl": 0.25}
-DOM_CACHE = {}
 
 
 def log(m):
@@ -33,20 +22,23 @@ def rnd(n=10):
     return "".join(random.choices(string.ascii_lowercase + string.digits, k=n))
 
 
-def limit(prov):
-    with PROV_LOCK:
-        now = time.time()
-        w = PROV_MIN.get(prov, 1.0) - (now - PROV_LAST.get(prov, 0))
-        PROV_LAST[prov] = max(now, PROV_LAST.get(prov, 0) + PROV_MIN.get(prov, 1.0))
-    if w > 0:
-        time.sleep(w)
+def poll_token():
+    for _ in range(8):
+        try:
+            r = requests.get(FEED + f"?t={int(time.time())}", timeout=20)
+            toks = [t for t in r.text.split() if len(t) > 40]
+            if toks:
+                return random.choice(toks)
+        except Exception:
+            pass
+        time.sleep(6)
+    return None
 
 
 def mail_create():
     for attempt in range(6):
         kind, base = MAILS[attempt % len(MAILS)]
         try:
-            limit(kind)
             if kind == "tmpl":
                 return rnd(12) + "@mailto.plus", "", "", base, kind
             dom = DOM_CACHE.get(base)
@@ -64,7 +56,10 @@ def mail_create():
     return None, None, None, None, None
 
 
-def mail_code(mtok, base, kind, timeout=160):
+DOM_CACHE = {}
+
+
+def mail_code(mtok, base, kind, timeout=170):
     t0 = time.time()
     seen = set()
     while time.time() - t0 < timeout:
@@ -100,94 +95,6 @@ def mail_code(mtok, base, kind, timeout=160):
     return None
 
 
-# === chrome CDP (локальный) ===
-async def _eval(ws_url, expr, timeout=70):
-    async with websockets.connect(ws_url, max_size=10 * 1024 * 1024, open_timeout=10, close_timeout=3) as ws:
-        await ws.send(json.dumps({"id": 1, "method": "Runtime.evaluate", "params": {"expression": expr, "awaitPromise": True, "returnByValue": True}}))
-        while True:
-            d = json.loads(await asyncio.wait_for(ws.recv(), timeout))
-            if d.get("id") == 1:
-                return d.get("result", {}).get("result", {}).get("value")
-
-
-async def _click_ts(ws_url):
-    try:
-        async with websockets.connect(ws_url, open_timeout=10, close_timeout=3) as ws:
-            await ws.send(json.dumps({"id": 1, "method": "Runtime.evaluate", "params": {
-                "expression": '''(()=>{const w=document.querySelector('.cf-turnstile')||document.querySelector('[class*=turnstile]'); if(!w) return 0; const r=w.getBoundingClientRect(); window.__tsxy=[r.x+r.width/2, r.y+r.height/2]; return JSON.stringify(window.__tsxy)})()''',
-                "returnByValue": True}}))
-            while True:
-                d = json.loads(await asyncio.wait_for(ws.recv(), 15))
-                if d.get("id") == 1:
-                    rect = d.get("result", {}).get("result", {}).get("value")
-                    break
-        if not rect:
-            return
-        x, y = json.loads(rect)
-        async with websockets.connect(ws_url, open_timeout=10, close_timeout=3) as ws:
-            for meth, params in [("Input.dispatchMouseEvent", {"type": "mousePressed", "x": x, "y": y, "button": "left", "clickCount": 1}),
-                                  ("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": x, "y": y, "button": "left", "clickCount": 1})]:
-                await ws.send(json.dumps({"id": 3, "method": meth, "params": params}))
-                await asyncio.sleep(0.2)
-    except Exception:
-        pass
-
-
-def solve_token(ws_url, tries=2):
-    for _ in range(tries):
-        try:
-            asyncio.run(_eval(ws_url, "location.href='https://console.crusoecloud.com/request'", 20))
-            time.sleep(5)
-            probe = '''new Promise((resolve)=>{ if(!window.turnstile) return resolve('notts');
-              const d=document.createElement('div'); document.body.appendChild(d); let done=false;
-              const wid=window.turnstile.render(d,{sitekey:'%s',action:'signup',size:'flexible',appearance:'always',
-                callback:(t)=>{done=true;try{window.turnstile.remove(wid)}catch(e){}d.remove();resolve(t)},
-                'error-callback':(e)=>{done=true;try{window.turnstile.remove(wid)}catch(e2){}d.remove();resolve('ERR:'+String(e).slice(0,30))}});
-              setTimeout(()=>{if(!done){try{window.turnstile.remove(wid)}catch(e){}d.remove();resolve('TIMEOUT')}},55000)})''' % SKEY
-            fut = asyncio.ensure_future(_eval(ws_url, probe, 60))
-            time.sleep(9)
-            try:
-                asyncio.run(asyncio.wait_for(_click_ts(ws_url), 4))
-            except Exception:
-                pass
-            tok = asyncio.get_event_loop().run_until_complete(fut) if False else None
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                tok = ex.submit(asyncio.run, _eval(ws_url, "window.__tok301||''", 5)).result(timeout=6)
-        except Exception as e:
-            log(f"solve err: {str(e)[:50]}")
-            time.sleep(2)
-            continue
-    return None
-
-
-def solve_token_tab(ws_url):
-    """синхронный надёжный: render + poll"""
-    try:
-        asyncio.run(_eval(ws_url, "location.href='https://console.crusoecloud.com/request'", 20))
-        time.sleep(4)
-        asyncio.run(_eval(ws_url, '''(()=>{window.__tok301=null;
-          if(!window.turnstile) return 'notts';
-          const d=document.createElement('div');d.id='p301';document.body.appendChild(d);
-          window.turnstile.render(d,{sitekey:'%s',action:'signup',size:'flexible',appearance:'always',
-            callback:(t)=>{window.__tok301=t}, 'error-callback':()=>{}});
-          return 'rendered'})()''' % SKEY, 15))
-        for i in range(48):
-            time.sleep(1)
-            if i == 9:
-                try:
-                    asyncio.run(asyncio.wait_for(_click_ts(ws_url), 4))
-                except Exception:
-                    pass
-            v = asyncio.run(_eval(ws_url, "window.__tok301||''", 8))
-            if v and len(str(v)) > 50:
-                return str(v)
-        return None
-    except Exception as e:
-        log(f"solve_token_tab err: {str(e)[:50]}")
-        return None
-
-
 def api_headers(csrf=None):
     h = {"Accept": "application/json", "User-Agent": UA, "Origin": CONSOLE, "Referer": CONSOLE + "/"}
     if csrf:
@@ -205,28 +112,10 @@ def nodes_csrf(j):
     return None
 
 
-def push_dump():
-    """ключи локального файла → приватный dump-репо (каждые push_batch ключей, с ретраем на конфликт)"""
-    if not PUSH:
-        return
-    try:
-        cur = subprocess.run(["gh", "api", f"repos/{DUMP}/contents/{OUT}"], capture_output=True, text=True, timeout=30)
-        sha = None
-        old = ""
-        if cur.returncode == 0:
-            j = json.loads(cur.stdout)
-            sha = j.get("sha")
-            old = base64.b64decode(j.get("content", "")).decode()
-        local = open(OUT).read()
-        merged = old + "".join(x for x in local.splitlines(True) if x not in old)
-        r = subprocess.run(["gh", "api", f"repos/{DUMP}/contents/{OUT}", "-f", f"message={WORKER} push", "-f", f"content=" + base64.b64encode(merged.encode()).decode(), "-f", f"branch=main"] + (["-f", f"sha={sha}"] if sha else []), capture_output=True, text=True, timeout=30)
-        if r.returncode == 0:
-            open(OUT, "w").write("")
-    except Exception as e:
-        log(f"push_dump err: {str(e)[:40]}")
-
-
-def attempt(idx, ws_url, s):
+def attempt(idx, s):
+    tok = poll_token()
+    if not tok:
+        return "no_token"
     email, mpw, mtok, mbase, mkind = mail_create()
     if not email:
         return "mail"
@@ -237,16 +126,12 @@ def attempt(idx, ws_url, s):
     if r.status_code != 200 or not r.headers.get("x-csrf-token"):
         return f"csrf{r.status_code}"
     csrf = r.headers["x-csrf-token"]
-    tok = solve_token_tab(ws_url)
-    if not tok:
-        return "token"
     body = {"email": email, "company": company, "source": "portal", "referral": "", "use_case": "cloud", "cf-turnstile-response": tok}
     r = s.post(f"{CONSOLE}/api/v1/organizations/prospects", json=body, headers=api_headers(csrf), timeout=40)
-    if r.status_code == 429:
-        time.sleep(20)
-        tok2 = solve_token_tab(ws_url)
-        r = s.post(f"{CONSOLE}/api/v1/organizations/prospects",
-                   json={**body, "cf-turnstile-response": tok2 or tok}, headers=api_headers(csrf), timeout=40)
+    if r.status_code == 403:  # токен скомуниздил другой воркер — новый
+        tok2 = poll_token()
+        if tok2:
+            r = s.post(f"{CONSOLE}/api/v1/organizations/prospects", json={**body, "cf-turnstile-response": tok2}, headers=api_headers(csrf), timeout=40)
     if r.status_code != 200:
         return f"prospects{r.status_code}"
     r = s.get(f"{CONSOLE}/auth/self-service/registration/browser", headers=api_headers(), timeout=40)
@@ -309,44 +194,45 @@ def attempt(idx, ws_url, s):
         alive = "1" if ra.status_code == 200 else "0"
     except Exception:
         alive = "0"
-    line = f"{email}:{pw}:{key}:{alive}\n"
-    with LOCK:
-        with open(OUT, "a") as f:
-            f.write(line)
-        stats["ok"] += 1
-        stats["alive"] += int(alive)
-    log(f"OK {'ALIVE' if alive == '1' else 'DEAD'} {key[:14]}... (всего {stats['ok']})")
-    return "ok"
+    print(f"KEY {WORKER} {email}:{pw}:{key}:{alive}", flush=True)  # в лог для резервного парсинга
+    return f"OK::{key}"
 
 
 def main():
-    print(f"=== FARM301 {WORKER}: {MINUTES} мин, окно {(MINUTES-2)}", flush=True)
+    log(f"=== FARM301v2 {WORKER}: {MINUTES} мин")
     t_end = time.time() + max(60, (MINUTES - 2) * 60)
-    # локальный chrome
-    subprocess.Popen(["google-chrome", "--headless=new", "--remote-debugging-port=9222", "--no-sandbox",
-                      "--disable-blink-features=AutomationControlled", "--user-data-dir=/tmp/c301", "https://console.crusoecloud.com/request"],
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    time.sleep(8)
-    r = requests.put(f"{CDP}/json/new?https://console.crusoecloud.com/request", timeout=15).json()
-    ws_url = r["webSocketDebuggerUrl"]
     s = requests.Session()
     s.headers.update({"User-Agent": UA})
-    n = 0
+    stats = {"ok": 0, "att": 0, "fails": {}}
+    keys = []
     while time.time() < t_end:
-        res = attempt(n, ws_url, s)
-        with LOCK:
-            stats["attempts"] += 1
+        try:
+            res = attempt(0, s)
+        except Exception as e:
+            res = f"exc:{str(e)[:30]}"
+        stats["att"] += 1
+        if res.startswith("OK::"):
+            stats["ok"] += 1
+            keys.append(res[4:])
+            log(f"OK ключ #{stats['ok']}")
+        else:
             stats["fails"][res] = stats["fails"].get(res, 0) + 1
-        n += 1
         time.sleep(2)
-        if os.path.exists(OUT) and os.path.getsize(OUT) > 0 and n % 3 == 0:
-            push_dump()
-    push_dump()
-    print(f"=== {WORKER} ИТОГ: ok={stats['ok']} alive={stats['alive']} attempts={stats['attempts']} fails={json.dumps(stats['fails'])}", flush=True)
-    try:
-        requests.get(f"{CDP}/json/close", timeout=5)
-    except Exception:
-        pass
+    log(f"=== {WORKER} ИТОГ ok={stats['ok']} attempts={stats['att']} fails={json.dumps(stats['fails'])}")
+    if keys and GH_TOKEN:
+        try:
+            payload = "\n".join(f"gh-actions:{WORKER}:{k}:1" for k in keys)
+            cur = subprocess.run(["gh", "api", f"repos/{DUMP}/contents/farm301_keys.txt"], capture_output=True, text=True, timeout=30)
+            sha = None
+            old = ""
+            if cur.returncode == 0:
+                j = json.loads(cur.stdout)
+                sha = j.get("sha")
+                old = base64.b64decode(j.get("content", "")).decode()
+            merged = old + payload + "\n"
+            subprocess.run(["gh", "api", f"repos/{DUMP}/contents/farm301_keys.txt", "-f", f"message={WORKER} push", "-f", "content=" + base64.b64encode(merged.encode()).decode()] + (["-f", f"sha={sha}"] if sha else []), capture_output=True, timeout=30)
+        except Exception as e:
+            log(f"push err: {str(e)[:40]}")
 
 
 if __name__ == "__main__":
