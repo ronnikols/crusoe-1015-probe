@@ -23,12 +23,16 @@ def rnd(n=10):
 
 
 def poll_token():
-    for _ in range(8):
+    """токены из репо через gh api (GITHUB_TOKEN раннера, без CDN-кэша)"""
+    import subprocess
+    import base64 as b64
+    for _ in range(10):
         try:
-            r = requests.get(FEED + f"?t={int(time.time())}", timeout=20)
-            toks = [t for t in r.text.split() if len(t) > 40]
-            if toks:
-                return random.choice(toks)
+            out = subprocess.run(["gh", "api", "repos/ronnikols/crusoe-1015-probe/contents/tokens.txt", "--jq", ".content"], capture_output=True, text=True, timeout=20)
+            if out.returncode == 0 and out.stdout.strip():
+                toks = [t for t in b64.b64decode(out.stdout).decode().split() if len(t) > 40]
+                if toks:
+                    return random.choice(toks)
         except Exception:
             pass
         time.sleep(6)
