@@ -1,0 +1,18 @@
+name: v6probe
+on:
+  workflow_dispatch:
+    inputs:
+      tok:
+        required: true
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: v4 vs v6 prospects
+        env:
+          TOK: ${{ github.event.inputs.tok }}
+        run: |
+          echo "=== IP v6:"; curl -6 -s --max-time 10 https://check.torproject.org/api/ip || echo "no v6"
+          echo "=== v6 csrf:"; curl -6 -6 -c /tmp/ck6 -s -D /tmp/h6 --max-time 20 https://console.crusoecloud.com/api/v1 -o /dev/null; CSRF6=$(grep -i x-csrf-token /tmp/h6 | tr -d '\r' | awk '{print $2}'); echo "csrf: ${CSRF6:0:20}"
+          echo "=== v6 POST:"; curl -6 -b /tmp/ck6 -s --max-time 20 -X POST https://console.crusoecloud.com/api/v1/organizations/prospects -H "Content-Type: application/json" -H "X-CSRF-Token: $CSRF6" -H "Origin: https://console.crusoecloud.com" -H "Referer: https://console.crusoecloud.com/" -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64) Chrome/153" -d "{\"email\":\"v6p$(date +%s)@spam4.me\",\"company\":\"V6 Co\",\"source\":\"portal\",\"referral\":\"\",\"use_case\":\"cloud\",\"cf-turnstile-response\":\"$TOK\"}" | head -c 150
+          echo; echo "=== v4 POST для сравнения:"; curl -c /tmp/ck4 -s -D /tmp/h4 --max-time 20 https://console.crusoecloud.com/api/v1 -o /dev/null; CSRF4=$(grep -i x-csrf-token /tmp/h4 | tr -d '\r' | awk '{print $2}'); curl -b /tmp/ck4 -s --max-time 20 -X POST https://console.crusoecloud.com/api/v1/organizations/prospects -H "Content-Type: application/json" -H "X-CSRF-Token: $CSRF4" -H "Origin: https://console.crusoecloud.com" -H "Referer: https://console.crusoecloud.com/" -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64) Chrome/153" -d "{\"email\":\"v4p$(date +%s)@spam4.me\",\"company\":\"V4 Co\",\"source\":\"portal\",\"referral\":\"\",\"use_case\":\"cloud\",\"cf-turnstile-response\":\"$TOK\"}" | head -c 150
