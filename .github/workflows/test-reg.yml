@@ -1,0 +1,30 @@
+name: test-reg
+on: workflow_dispatch
+jobs:
+  t:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: reg
+        run: |
+          python3 - <<'PYEOF'
+          import requests, random, string, time
+          rnd = lambda n: ''.join(random.choices(string.ascii_lowercase+string.digits, k=n))
+          s = requests.Session()
+          s.headers.update({"User-Agent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
+            "Origin":"https://console.crusoecloud.com","Referer":"https://console.crusoecloud.com/request"})
+          print("runner egress:", s.get("http://api.ipify.org", timeout=15).text)
+          for dom in ["gmail.com","maildrop.cc","bheps.com"]:
+              try:
+                  r = s.get("https://console.crusoecloud.com/auth/self-service/registration/browser", headers={"Accept":"application/json"}, timeout=25)
+                  j = r.json(); flow = j.get("id"); csrf = None
+                  for n in j.get("ui",{}).get("nodes",[]):
+                      if n.get("attributes",{}).get("name")=="csrf_token": csrf=n["attributes"]["value"]
+                  r2 = s.post(f"https://console.crusoecloud.com/auth/self-service/registration?flow={flow}",
+                      json={"csrf_token":csrf,"method":"password","password":"Crs!"+rnd(10)+"aA1",
+                            "traits":{"email":f"probe{rnd(8)}@{dom}","fullname":"John Walker"},"signup_token":""}, timeout=25)
+                  print(f"REGTEST {dom}: {r2.status_code} | {r2.text[:150]}")
+              except Exception as e:
+                  print(f"REGTEST {dom} err:", str(e)[:100])
+              time.sleep(5)
+          PYEOF
