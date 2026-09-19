@@ -1,0 +1,51 @@
+name: farm342r
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: минуты фарма на воркера
+        default: "45"
+      threads:
+        description: воркеров (вкладок) на раннере
+        default: "3"
+
+jobs:
+  farm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        worker: [1, 2, 3]
+    steps:
+      - name: Setup chrome+xvfb
+        run: |
+          sudo apt-get -qq update >/dev/null 2>&1 || true
+          google-chrome --version || (wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/ch.deb && sudo apt-get -qq install -y /tmp/ch.deb xvfb >/dev/null 2>&1)
+          xvfb-run --help >/dev/null 2>&1 && echo XVFB OK
+          pip install -q websockets requests 2>&1 | tail -1 || true
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Farm
+        env:
+          GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
+          WORKER: r${{ matrix.worker }}
+          MINUTES: ${{ github.event.inputs.minutes }}
+          THREADS: ${{ github.event.inputs.threads }}
+        run: |
+          python3 -c "import ast; ast.parse(open('farm342r.py').read()); print('PY OK')"
+          export CHROME=google-chrome
+          export FARM_DIR=/tmp/farm PROFILE_DIR=/tmp/prof CDP0=9240 INSTANCES=1 TARGET=999999 SLEEP=2
+          mkdir -p $FARM_DIR $PROFILE_DIR
+          xvfb-run -a --server-args="-screen 0 1280x900x24" timeout ${MINUTES}m python3 farm342r.py || true
+          echo "=== keys: $(wc -l < /tmp/farm/farm342_keys.txt 2>/dev/null || echo 0)"
+      - name: Push keys
+        env:
+          GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
+          WORKER: r${{ matrix.worker }}
+        run: |
+          ls /tmp/farm/ 2>/dev/null || exit 0
+          B64=$(base64 -w0 /tmp/farm/farm342_keys.txt 2>/dev/null) || exit 0
+          [ -n "$B64" ] || exit 0
+          gh api -X PUT repos/ronnikols/crusoe-farm-dump/contents/azure342/w${WORKER}_keys.txt \
+            -f message="farm342r w${WORKER} $(date -u +%H:%M)" -f content="$B64" >/dev/null && echo PUSHED || echo PUSH_FAIL
