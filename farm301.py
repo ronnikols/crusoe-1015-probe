@@ -136,6 +136,8 @@ def attempt(idx, s):
         tok2 = poll_token()
         if tok2:
             r = s.post(f"{CONSOLE}/api/v1/organizations/prospects", json={**body, "cf-turnstile-response": tok2}, headers=api_headers(csrf), timeout=40)
+    if r.status_code == 429:
+        return "STORM"  # окно CF закрыто — бэкофф в main, токен не жечь дальше
     if r.status_code != 200:
         return f"prospects{r.status_code}"
     r = s.get(f"{CONSOLE}/auth/self-service/registration/browser", headers=api_headers(), timeout=40)
@@ -219,6 +221,10 @@ def main():
             stats["ok"] += 1
             keys.append(res[4:])
             log(f"OK ключ #{stats['ok']}")
+        elif res == "STORM":
+            stats["fails"][res] = stats["fails"].get(res, 0) + 1
+            time.sleep(45 + random.random() * 45)  # окно CF закрыто — ждём reopening, не жечь фид
+            continue
         else:
             stats["fails"][res] = stats["fails"].get(res, 0) + 1
         time.sleep(2)
