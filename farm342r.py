@@ -23,7 +23,7 @@ def start_chrome(idx):
     d = os.environ.get("PROFILE_DIR", "/home/ronnikols/.cache") + f"/cdp342-{idx}"
     os.makedirs(d, exist_ok=True)
     p = subprocess.Popen([os.environ.get("CHROME", "chromium"), f"--user-data-dir={d}", f"--remote-debugging-port={CDP0 + idx}",
-        "--no-first-run", "--window-position=-32000,-32000",
+        "--no-first-run", "--window-size=1280,900", "--window-position=-32000,-32000",
         "--disable-dev-shm-usage", "--disable-gpu", "--mute-audio",
         "--blink-settings=imagesEnabled=false"], env=ENV,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
