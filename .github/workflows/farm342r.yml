@@ -33,7 +33,7 @@ jobs:
           GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
           WORKER: r${{ matrix.worker }}-${{ github.run_number }}
           GIST_ID: 9106692a095ccfe9aeca95b468c7ee3d
-          MINUTES: ${{ github.event.inputs.minutes }}
+          MINUTES: ${{ github.event.inputs.minutes || 40 }}
           THREADS: ${{ github.event.inputs.threads }}
         run: |
           python3 -c "import ast; ast.parse(open('farm342r.py').read()); print('PY OK')"
