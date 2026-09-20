@@ -55,3 +55,13 @@ jobs:
             gh api -X PUT repos/ronnikols/crusoe-farm-dump/contents/azure342/w${WORKER}_$F.txt \
               -f message="farm342r w${WORKER} $F $(date -u +%H:%M)" -f content="$B64" >/dev/null && echo "PUSHED_$F" || echo "PUSH_FAIL_$F"
           done
+
+  respawn:
+    needs: farm
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    steps:
+      - name: перезапуск фермы
+        env:
+          GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
+        run: gh workflow run farm342r.yml --ref master -f minutes=40 -f threads=3
