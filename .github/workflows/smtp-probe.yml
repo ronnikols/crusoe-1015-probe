@@ -5,18 +5,22 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - run: |
+      - name: send
+        run: |
           python3 - <<'PY'
           import smtplib, datetime
-          msg = f"""From: probe@gh-runner.local
-To: labtest54vhlwv6@maildrop.cc
-Subject: GH SMTP probe {datetime.datetime.utcnow()}
-Date: {datetime.datetime.utcnow()}
-
-probe 123456
-"""
+          C = chr(58)
+          msg = "\n".join([
+              "From" + C + " probe@gh-runner.local",
+              "To" + C + " labtest54vhlwv6@maildrop.cc",
+              "Subject" + C + " GH SMTP probe",
+              "Date" + C + " " + str(datetime.datetime.utcnow()),
+              "",
+              "probe 123456",
+              "",
+          ])
           s = smtplib.SMTP("mx.maildrop.cc", 25, timeout=30)
-          print(s.sendmail("probe@gh-runner.local", ["labtest54vhlwv6@maildrop.cc"], msg))
+          s.sendmail("probe@gh-runner.local", ["labtest54vhlwv6@maildrop.cc"], msg)
           s.quit()
           print("SEND OK")
           PY
