@@ -1,10 +1,12 @@
 name: farm342r
 on:
+  schedule:
+    - cron: '*/48 * * * *'
   workflow_dispatch:
     inputs:
       minutes:
         description: минуты фарма на воркера
-        default: "45"
+        default: "40"
       threads:
         description: воркеров (вкладок) на раннере
         default: "3"
@@ -12,11 +14,11 @@ on:
 jobs:
   farm:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 55
     strategy:
       fail-fast: false
       matrix:
-        worker: [w0,w1,w2,w3,w4,w5,w6,w7,w8,w9,w10,w11,w12,w13,w14,w15,w16,w17,w18]
+        worker: [w0,w1,w2,w3,w4,w5,w6,w7,w8,w9,w10,w11]
     steps:
       - name: Setup chrome+xvfb
         run: |
