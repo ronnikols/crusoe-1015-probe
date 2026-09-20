@@ -9,20 +9,20 @@ TARGET = int(os.environ.get("TARGET", "600"))
 THREADS = int(os.environ.get("THREADS", "12"))
 INSTANCES = int(os.environ.get("INSTANCES", "2"))
 SLEEP_BETWEEN = int(os.environ.get("SLEEP", "3"))
-LOG = os.environ.get("FLOG", "/tmp/farm/farm342.log")
-KEYS = os.environ.get("FKEYS", "/tmp/farm/farm342_keys.txt")
-STATS = os.environ.get("FSTATS", "/tmp/farm/farm342_stats.json")
-ENV = {**os.environ}
+LOG = os.environ.get("FLOG", "/home/ronnikols/crusoe-farm/farm342.log")
+KEYS = "/home/ronnikols/crusoe-farm/farm342_keys.txt"
+STATS = "/home/ronnikols/crusoe-farm/farm342_stats.json"
+ENV = {**os.environ, "WAYLAND_DISPLAY": "wayland-1", "DISPLAY": ":1", "XDG_RUNTIME_DIR": "/run/user/1000"}
 chrome_procs = []
 
 def cdp(idx): return f"http://127.0.0.1:{CDP0 + idx}"
 
 def start_chrome(idx):
-    d = os.environ.get("FPROF", "/tmp/prof") + f"/cdp342-{idx}"
+    d = f"/home/ronnikols/.cache/cdp342-{idx}"
     os.makedirs(d, exist_ok=True)
     px = f"--proxy-server=socks5://127.0.0.1:{int(os.environ.get('PROXY_BASE', '9150')) + idx * 10}" if os.environ.get("PROXY_BASE") else ""
     p = subprocess.Popen([os.environ.get("CHROME", "brave"), f"--user-data-dir={d}", f"--remote-debugging-port={CDP0 + idx}", px,
-        "--no-first-run", "--window-size=1280,900", "--window-position=80,80",
+        "--no-first-run", f"--window-size={os.environ.get('WINSIZE','1280,900')}", "--window-position=80,80",
         "--disable-dev-shm-usage"], env=ENV,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     chrome_procs.append(p)
@@ -260,8 +260,7 @@ async def _flow(wsurl, idx, email, pw):
         # страница check email — ждём 200-ответ на reg POST
         await asyncio.sleep(4)
         try:
-            import os as _os; _os.makedirs(_os.environ.get("FPROF","/tmp/prof"), exist_ok=True)
-            with open(_os.environ.get("FKEYS","/tmp/farm/farm342_keys.txt").replace("farm342_keys.txt","farm342_accs.txt"), "a") as f:
+            with open("/home/ronnikols/crusoe-farm/farm342_accs.txt", "a") as f:
                 f.write(f"{email}:{pw}\n")
         except Exception:
             pass
@@ -309,6 +308,8 @@ async def _flow(wsurl, idx, email, pw):
                     if "verification?flow=" in u and rp["status"] == 200: ok[0] = True; break
                     if "/api/v1/" in u and rp["status"] == 200: ok[0] = True; break
         await asyncio.sleep(8)
+        if os.environ.get("SKIPKEYRES"):
+            return "acc-done"
         # ПРЕ-КЛЮЧ: сессия от verify может уже быть живой — пробуем API сразу
         pre = await ev("""(async()=>{try{
           const r0 = await fetch('/api/v1', {credentials:'include', headers:{'Accept':'application/json'}});
