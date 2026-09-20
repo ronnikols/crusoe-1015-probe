@@ -85,8 +85,9 @@ async def login_multistep(w):
           if(!q)return null;q.focus();s.call(q,'%s');q.dispatchEvent(new Event('input',{bubbles:true}));q.dispatchEvent(new Event('change',{bubbles:true}));
           return 'set'})()""" % EMAIL)
         if r:
-            await ev(w, """(()=>{const sub=[...document.querySelectorAll('button')].find(x=>x.type==='submit');
-              if(sub)sub.click();if(document.querySelector('form'))document.querySelector('form').requestSubmit(sub);return 1})()""")
+            pwvis = await ev(w, """(()=>{const q=[...document.querySelectorAll('input')].find(i=>i.type==='password'&&!i.disabled&&(i.offsetWidth||i.getClientRects().length)); return q?1:0})()""")
+            if not pwvis:
+                await ev(w, """(()=>{const sub=[...document.querySelectorAll('button')].find(x=>x.type==='submit');if(sub)sub.click();return 1})()""")
             log("email шаг")
             break
         await asyncio.sleep(3)
@@ -96,8 +97,7 @@ async def login_multistep(w):
           if(!q)return null;q.focus();s.call(q,'%s');q.dispatchEvent(new Event('input',{bubbles:true}));q.dispatchEvent(new Event('change',{bubbles:true}));
           return 'set'})()""" % PW)
         if r:
-            await ev(w, """(()=>{const sub=[...document.querySelectorAll('button')].find(x=>x.type==='submit');
-              if(sub)sub.click();if(document.querySelector('form'))document.querySelector('form').requestSubmit(sub);return 1})()""")
+            await ev(w, """(()=>{const sub=[...document.querySelectorAll('button')].find(x=>x.type==='submit');if(sub)sub.click();return 1})()""")
             log("password шаг")
             return True
         await asyncio.sleep(3)

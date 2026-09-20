@@ -3,29 +3,27 @@
 # v2: N изолированных хром-инстансов (по одному на воркера) — куки не пересекаются
 import asyncio, json, os, random, re, string, subprocess, threading, time, requests, websockets
 
-CDP0 = 9240
+CDP0 = int(os.environ.get("CDP0", "9440"))
 BASE = "https://console.crusoecloud.com"
 TARGET = int(os.environ.get("TARGET", "600"))
 THREADS = int(os.environ.get("THREADS", "12"))
 INSTANCES = int(os.environ.get("INSTANCES", "2"))
 SLEEP_BETWEEN = int(os.environ.get("SLEEP", "3"))
-D = os.environ.get("FARM_DIR", "/home/ronnikols/crusoe-farm")
-os.makedirs(D, exist_ok=True)
-LOG = os.environ.get("FLOG", D + "/farm342.log")
-KEYS = D + "/farm342_keys.txt"
-STATS = D + "/farm342_stats.json"
-ENV = {**os.environ}
+LOG = os.environ.get("FLOG", "/home/ronnikols/crusoe-farm/farm342.log")
+KEYS = "/home/ronnikols/crusoe-farm/farm342_keys.txt"
+STATS = "/home/ronnikols/crusoe-farm/farm342_stats.json"
+ENV = {**os.environ, "WAYLAND_DISPLAY": "wayland-1", "DISPLAY": ":1", "XDG_RUNTIME_DIR": "/run/user/1000"}
 chrome_procs = []
 
 def cdp(idx): return f"http://127.0.0.1:{CDP0 + idx}"
 
 def start_chrome(idx):
-    d = os.environ.get("PROFILE_DIR", "/home/ronnikols/.cache") + f"/cdp342-{idx}"
+    d = f"/home/ronnikols/.cache/cdp342-{idx}"
     os.makedirs(d, exist_ok=True)
-    p = subprocess.Popen([os.environ.get("CHROME", "chromium"), f"--user-data-dir={d}", f"--remote-debugging-port={CDP0 + idx}",
-        "--no-first-run", "--window-size=1280,900", "--window-position=-32000,-32000",
-        "--disable-dev-shm-usage", "--disable-gpu", "--mute-audio",
-        "--blink-settings=imagesEnabled=false"], env=ENV,
+    px = f"--proxy-server=socks5://127.0.0.1:{int(os.environ.get('PROXY_BASE', '9150')) + idx * 10}" if os.environ.get("PROXY_BASE") else ""
+    p = subprocess.Popen([os.environ.get("CHROME", "brave"), f"--user-data-dir={d}", f"--remote-debugging-port={CDP0 + idx}", px,
+        "--no-first-run", "--window-size=1280,900", "--window-position=80,80",
+        "--disable-dev-shm-usage"], env=ENV,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     chrome_procs.append(p)
     for t in range(20):
@@ -168,7 +166,7 @@ async def _flow(wsurl, idx, email, pw):
           const q=[...document.querySelectorAll('input')].filter(i=>i.type!=='checkbox');
           const vals=['{email}','{pw}','{company}','{fullname}'];
           q.forEach((inp,i)=>{{inp.focus();set.call(inp,vals[i]||'x');inp.dispatchEvent(new Event('input',{{bubbles:true}}));}});
-          [...document.querySelectorAll('input[type=checkbox]')].forEach(x=>{{x.click();Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'checked').set.call(x,true);x.dispatchEvent(new Event('input',{{bubbles:true}}));x.dispatchEvent(new Event('change',{{bubbles:true}}));const l=x.closest('label')||x.parentElement;if(l)l.click();}});
+          [...document.querySelectorAll('input[type=checkbox], input.ps-contract-target')].forEach(x=>{{if(!x.checked){{x.click();}} x.dispatchEvent(new Event('input',{{bubbles:true}}));x.dispatchEvent(new Event('change',{{bubbles:true}}));}});
           return q.length}})()""")
         if not n or int(n) < 4: return "no form inputs=" + str(n)
         clicked_reg = False
@@ -198,9 +196,22 @@ async def _flow(wsurl, idx, email, pw):
                 if not jj.get("has") and i >= 1:
                     break  # капчи нет — жать почти сразу
             await ev("""(()=>{const b=[...document.querySelectorAll('button')].find(x=>/^create account$/i.test((x.innerText||'').trim())); if(b&&!b.disabled){b.click();return 'ok'} return 'nobtn'})()""")
+            # КАПЧА turnstile: контейнер div(minWidth:300) -> координатный клик по чекбоксу
+            for _cap in range(8):
+                try: d2 = json.loads(await asyncio.wait_for(w.recv(), 1.5))
+                except Exception: d2 = None
+                rect = await ev("""(()=>{const d=[...document.querySelectorAll('div')].find(e=>getComputedStyle(e).minWidth==='300px');if(!d)return null;const b=d.getBoundingClientRect();return JSON.stringify({x:Math.round(b.x),y:Math.round(b.y),h:Math.round(b.height)})})()""")
+                if rect:
+                    try:
+                        c = json.loads(rect)
+                        cx, cy = c["x"] + 22, c["y"] + c["h"] // 2
+                        for tp in ("mouseMoved", "mousePressed", "mouseReleased"):
+                            await cmd("Input.dispatchMouseEvent", {"type": tp, "x": cx, "y": cy, "button": "left", "clickCount": 1})
+                    except Exception: pass
+                await asyncio.sleep(2.5)
             t0 = asyncio.get_event_loop().time()
             regok2 = False
-            while asyncio.get_event_loop().time() - t0 < 25:
+            while asyncio.get_event_loop().time() - t0 < 18:
                 try: d = json.loads(await asyncio.wait_for(w.recv(), 2))
                 except Exception: d = None
                 if d:
@@ -217,7 +228,7 @@ async def _flow(wsurl, idx, email, pw):
                     regok2 = True; break
             if regok2: clicked_reg = True
             if clicked_reg: break
-            await asyncio.sleep(9)
+            await asyncio.sleep(5)
         if not clicked_reg:
             t = await ev("document.body.innerText.slice(0,180)")
             if t and ("thanks for signing up" in t.lower() or "check your inbox" in t.lower() or "check your email" in t.lower() or "6 digit code" in t.lower()):
@@ -297,18 +308,40 @@ async def _flow(wsurl, idx, email, pw):
                     if "verification?flow=" in u and rp["status"] == 200: ok[0] = True; break
                     if "/api/v1/" in u and rp["status"] == 200: ok[0] = True; break
         await asyncio.sleep(8)
-        # ЛОГИН-ПУТЬ (проверен login340): goto /login → email→Next→password→Next → console или verify(код)
-        await cmd("Page.navigate", {"url": "https://console.crusoecloud.com/login"})
-        await asyncio.sleep(6)
-        for _ in range(10):
-            r = await ev("""(()=>{const s=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;
-              const q=[...document.querySelectorAll('input')].find(i=>(i.type==='text'||i.type==='email')&&!i.disabled);
-              if(!q)return null;q.focus();s.call(q,'%s');q.dispatchEvent(new Event('input',{bubbles:true}));q.dispatchEvent(new Event('change',{bubbles:true}));
-              return 'set'})()""" % email)
-            if r:
-                await ev("(()=>{const sub=[...document.querySelectorAll('button')].find(x=>x.type==='submit');if(sub)sub.click();if(document.querySelector('form'))document.querySelector('form').requestSubmit(sub);return 1})()")
-                break
-            await asyncio.sleep(3)
+        # ПРЕ-КЛЮЧ: сессия от verify может уже быть живой — пробуем API сразу
+        pre = await ev("""(async()=>{try{
+          const r0 = await fetch('/api/v1', {credentials:'include', headers:{'Accept':'application/json'}});
+          const r2 = await fetch('/api/v1/organizations/projects', {credentials:'include', headers:{'Accept':'application/json'}});
+          const t2 = await r2.text();
+          return r2.status + '|' + t2.slice(0,120);
+        }catch(e){return 'EXC'}})()""")
+        pre_ok = str(pre) and '"items"' in str(pre) and '401' not in str(pre).split('|')[0]
+        # ЛОГИН-ПУТЬ: /login ОДНОШАГОВЫЙ (email+password сразу, кнопка Log in) — только если сессии нет
+        u3 = await ev("location.href") or ""
+        if not pre_ok:
+            await cmd("Page.navigate", {"url": "https://console.crusoecloud.com/login"})
+            await asyncio.sleep(6)
+            # МУЛЬТИШАГ: email -> Next -> password -> Next
+            for _lg in range(10):
+                r = await ev("""(()=>{const s=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set);
+                  const q=[...document.querySelectorAll('input')].find(i=>(i.type==='text'||i.type==='email')&&!i.disabled);
+                  if(!q)return null;q.focus();s.call(q,'%s');q.dispatchEvent(new Event('input',{bubbles:true}));q.dispatchEvent(new Event('change',{bubbles:true}));
+                  return 'set'})()""" % email)
+                if r:
+                    await ev("(()=>{const sub=[...document.querySelectorAll('button')].find(x=>x.type==='submit');if(sub)sub.click();return 1})()")
+                    break
+                await asyncio.sleep(3)
+            # ждать password-поле (шаг 2)
+            for _lp in range(10):
+                await asyncio.sleep(2)
+                r = await ev("""(()=>{const s=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set);
+                  const q=[...document.querySelectorAll('input')].find(i=>i.type==='password'&&!i.disabled&&!i.value);
+                  if(!q)return null;q.focus();s.call(q,'%s');q.dispatchEvent(new Event('input',{bubbles:true}));q.dispatchEvent(new Event('change',{bubbles:true}));
+                  return 'set'})()""" % pw)
+                if r:
+                    await ev("(()=>{const sub=[...document.querySelectorAll('button')].find(x=>x.type==='submit');if(sub)sub.click();if(document.querySelector('form'))document.querySelector('form').requestSubmit(sub);return 1})()")
+                    await asyncio.sleep(6)
+                    break
         for _ in range(10):
             r = await ev("""(()=>{const s=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;
               const q=[...document.querySelectorAll('input')].find(i=>i.type==='password'&&!i.disabled);
