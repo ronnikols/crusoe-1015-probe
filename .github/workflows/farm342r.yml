@@ -37,7 +37,7 @@ jobs:
           THREADS: ${{ github.event.inputs.threads }}
         run: |
           python3 -c "import ast; ast.parse(open('farm342r.py').read()); print('PY OK')"
-          export CHROME=google-chrome TAKEKEY=1
+          export CHROME=google-chrome TAKEKEY=1 SKIPKEYRES=1
           export FARM_DIR=/tmp/farm PROFILE_DIR=/tmp/prof FPROF=/tmp/prof CDP0=9240 INSTANCES=1 TARGET=999999 SLEEP=12
           mkdir -p $FARM_DIR $PROFILE_DIR
           xvfb-run -a --server-args="-screen 0 1280x900x24" timeout ${MINUTES}m python3 farm342r.py || true
