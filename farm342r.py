@@ -9,7 +9,12 @@ TARGET = int(os.environ.get("TARGET", "600"))
 THREADS = int(os.environ.get("THREADS", "12"))
 INSTANCES = int(os.environ.get("INSTANCES", "2"))
 SLEEP_BETWEEN = int(os.environ.get("SLEEP", "3"))
-LOG = os.environ.get("FLOG", "/home/ronnikols/crusoe-farm/farm342.log")
+LOG = os.environ.get("FLOG", "/tmp/farm/farm342.log")
+import os as _o
+try:
+    _o.makedirs(_o.path.dirname(LOG), exist_ok=True)
+except Exception:
+    pass
 KEYS = "/home/ronnikols/crusoe-farm/farm342_keys.txt"
 STATS = "/home/ronnikols/crusoe-farm/farm342_stats.json"
 ENV = {**os.environ, "WAYLAND_DISPLAY": "wayland-1", "DISPLAY": ":1", "XDG_RUNTIME_DIR": "/run/user/1000"}
