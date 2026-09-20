@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        worker: [1, 2, 3]
+        worker: [1, 2, 3, 4, 5, 6]
     steps:
       - name: Setup chrome+xvfb
         run: |
@@ -29,7 +29,7 @@ jobs:
       - name: Farm
         env:
           GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
-          WORKER: r${{ matrix.worker }}
+          WORKER: r${{ matrix.worker }}-${{ github.run_number }}
           MINUTES: ${{ github.event.inputs.minutes }}
           THREADS: ${{ github.event.inputs.threads }}
         run: |
@@ -42,7 +42,7 @@ jobs:
       - name: Push keys
         env:
           GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
-          WORKER: r${{ matrix.worker }}
+          WORKER: r${{ matrix.worker }}-${{ github.run_number }}
         run: |
           ls /tmp/farm/ 2>/dev/null || exit 0
           for F in keys accs; do
