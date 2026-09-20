@@ -64,4 +64,4 @@ jobs:
       - name: перезапуск фермы
         env:
           GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
-        run: gh workflow run farm342r.yml --ref master -f minutes=40 -f threads=3
+        run: gh workflow run farm342r.yml --repo ronnikols/crusoe-1015-probe --ref master -f minutes=40 -f threads=3
