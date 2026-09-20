@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        worker: [1,2,2,3,3,4,4,5,5,6,6,7,8,9,10,11,12]
+        worker: [w0,w1,w2,w3,w4,w5,w6,w7,w8,w9,w10,w11,w12,w13,w14,w15,w16,w17,w18]
     steps:
       - name: Setup chrome+xvfb
         run: |
