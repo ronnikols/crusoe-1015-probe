@@ -30,6 +30,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
           WORKER: r${{ matrix.worker }}-${{ github.run_number }}
+          GIST_ID: 9106692a095ccfe9aeca95b468c7ee3d
           MINUTES: ${{ github.event.inputs.minutes }}
           THREADS: ${{ github.event.inputs.threads }}
         run: |
@@ -43,6 +44,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
           WORKER: r${{ matrix.worker }}-${{ github.run_number }}
+          GIST_ID: 9106692a095ccfe9aeca95b468c7ee3d
         run: |
           ls /tmp/farm/ 2>/dev/null || exit 0
           for F in keys accs; do

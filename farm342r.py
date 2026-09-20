@@ -415,6 +415,23 @@ def worker(idx):
             fail((r or "?")[:28])
         time.sleep(SLEEP_BETWEEN)
 
+
+GIST_ID = os.environ.get("GIST_ID", "")
+WORKER_NAME = os.environ.get("WORKER", "w?")
+_tn = [0]
+def telemetry():
+    if not GIST_ID: return
+    try:
+        with open(LOG) as f:
+            tail = "".join(f.readlines()[-25:])
+        import urllib.request, json as _j
+        body = _j.dumps({"description": "farm342r telemetry", "files": {WORKER_NAME + ".txt": {"content": tail}}}).encode()
+        req = urllib.request.Request("https://api.github.com/gists/" + GIST_ID, data=body, method="PATCH",
+                                     headers={"Authorization": "Bearer " + os.environ.get("GH_TOKEN", ""), "Accept": "application/vnd.github+json", "User-Agent": "farm342r"})
+        urllib.request.urlopen(req, timeout=20).read()
+    except Exception:
+        pass
+
 if __name__ == "__main__":
     log(f"=== ФАРМ342 СТАРТ: инстансов {INSTANCES} воркеров {THREADS}, цель {TARGET}, egress LTE, maildrop.cc")
     save_stats("старт")
@@ -425,6 +442,9 @@ if __name__ == "__main__":
     try:
         while any(t.is_alive() for t in ts):
             time.sleep(10)
+            _tn[0] += 1
+            if _tn[0] % 6 == 0:
+                threading.Thread(target=telemetry, daemon=True).start()
     finally:
         for p in chrome_procs: p.kill()
     log("=== ЗАВЕРШЁН: alive=%d attempts=%d" % (st["alive"], st["attempts"]))
