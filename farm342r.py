@@ -3,12 +3,12 @@
 # v2: N изолированных хром-инстансов (по одному на воркера) — куки не пересекаются
 import asyncio, json, os, random, re, string, subprocess, threading, time, requests, websockets
 
-CDP0 = int(os.environ.get("CDP0", "9440"))
+CDP0 = int(os.environ.get("CDP0") or "9440")
 BASE = "https://console.crusoecloud.com"
-TARGET = int(os.environ.get("TARGET", "600"))
-THREADS = int(os.environ.get("THREADS", "12"))
-INSTANCES = int(os.environ.get("INSTANCES", "2"))
-SLEEP_BETWEEN = int(os.environ.get("SLEEP", "3"))
+TARGET = int(os.environ.get("TARGET") or "600")
+THREADS = int(os.environ.get("THREADS") or "12")
+INSTANCES = int(os.environ.get("INSTANCES") or "2")
+SLEEP_BETWEEN = int(os.environ.get("SLEEP") or "3")
 LOG = os.environ.get("FLOG", "/tmp/farm/farm342.log")
 import os as _o
 try:
