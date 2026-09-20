@@ -315,7 +315,34 @@ async def _flow(wsurl, idx, email, pw):
                     if "/api/v1/" in u and rp["status"] == 200: ok[0] = True; break
         await asyncio.sleep(8)
         if os.environ.get("SKIPKEYRES"):
-            return "acc-done"
+            if not os.environ.get("TAKEKEY"):
+                return "acc-done"
+            kk = await ev("""(async()=>{ try{
+                const r0 = await fetch('/api/v1',{credentials:'include',headers:{'Accept':'application/json'}});
+                const csrf = r0.headers.get('x-csrf-token')||'';
+                await fetch('/api/v1/organizations/entities',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json','X-Csrf-Token':csrf},body:JSON.stringify({organization_name:'Systems'})});
+                let pid=null;
+                for(let i=0;i<14;i++){
+                  const rp = await fetch('/api/v1/organizations/projects',{credentials:'include',headers:{'Accept':'application/json'}});
+                  if(rp.ok){const j=await rp.json();const it=(j.items||j.projects||[]);if(it&&it.length){pid=it[0].id;break;}}
+                  await new Promise(r=>setTimeout(r,2500));
+                }
+                if(!pid) return 'NOPID';
+                const rk = await fetch('/api/v1/users/limited-usage-api-key?usage=inference',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json','X-Csrf-Token':csrf},body:JSON.stringify({alias:'r'+Math.random().toString(36).slice(2,7),expires_at:'never',project_id:pid})});
+                const jk = await rk.json();
+                const key = jk.apiKey||jk.api_key||(jk.api_key_info||{}).api_key||(jk.api_key_info||{}).key||jk.key||'';
+                return key?('KEY:'+key):('K'+rk.status);
+              }catch(e){return 'EXC'+String(e).slice(0,40)} })()""", 90)
+            log(f"w{idx} {email}: takekey {str(kk)[:44]}")
+            if str(kk).startswith("KEY:"):
+                key = str(kk)[4:].strip()
+                try:
+                    with open(KEYS, "a") as f:
+                        f.write(f"{email}:{key}:None\n")
+                except Exception:
+                    pass
+                return "KEY:" + key[:18]
+            return "acc-done(nokey " + str(kk)[:24] + ")"
         # ПРЕ-КЛЮЧ: сессия от verify может уже быть живой — пробуем API сразу
         pre = await ev("""(async()=>{try{
           const r0 = await fetch('/api/v1', {credentials:'include', headers:{'Accept':'application/json'}});
