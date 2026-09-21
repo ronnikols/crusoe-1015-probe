@@ -1,0 +1,67 @@
+name: farmv2r
+on:
+  schedule:
+    - cron: '*/48 * * * *'
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: минуты фарма на воркера
+        default: "40"
+      threads:
+        description: воркеров (вкладок) на раннере
+        default: "3"
+
+jobs:
+  farm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        worker: [v0,v1,v2,v3,v4,v5]
+    steps:
+      - name: Setup chrome+xvfb
+        run: |
+          sudo apt-get -qq update >/dev/null 2>&1 || true
+          google-chrome --version || (wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/ch.deb && sudo apt-get -qq install -y /tmp/ch.deb xvfb >/dev/null 2>&1)
+          xvfb-run --help >/dev/null 2>&1 && echo XVFB OK
+          pip install -q websockets requests 2>&1 | tail -1 || true
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Farm
+        env:
+          GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
+          WORKER: v${{ matrix.worker }}-${{ github.run_number }}
+          GIST_ID: 9106692a095ccfe9aeca95b468c7ee3d
+          MINUTES: ${{ github.event.inputs.minutes || 40 }}
+          THREADS: ${{ github.event.inputs.threads }}
+        run: |
+          python3 -c "import ast; ast.parse(open('farmv2r.py').read()); print('PY OK')"
+          export CHROME=google-chrome TAKEKEY=1 SKIPKEYRES=1
+          export FARM_DIR=/tmp/farm PROFILE_DIR=/tmp/prof FPROF=/tmp/prof CDP0=9240 INSTANCES=3 THREADS=3 TARGET=999999 SLEEP=12
+          mkdir -p $FARM_DIR $PROFILE_DIR
+          xvfb-run -a --server-args="-screen 0 1280x900x24" timeout ${MINUTES}m python3 farmv2r.py || true
+          echo "=== keys: $(wc -l < /tmp/farm/farmv2r_keys.txt 2>/dev/null || echo 0)"
+      - name: Push keys
+        env:
+          GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
+          WORKER: v${{ matrix.worker }}-${{ github.run_number }}
+          GIST_ID: 9106692a095ccfe9aeca95b468c7ee3d
+        run: |
+          ls /tmp/farm/ 2>/dev/null || exit 0
+          for F in keys accs; do
+            B64=$(base64 -w0 /tmp/farm/farm342_$F.txt 2>/dev/null) || continue
+            [ -n "$B64" ] || continue
+            gh api -X PUT repos/ronnikols/crusoe-farm-dump/contents/azurev2r/w${WORKER}_$F.txt \
+              -f message="farmv2r w${WORKER} $F $(date -u +%H:%M)" -f content="$B64" >/dev/null && echo "PUSHED_$F" || echo "PUSH_FAIL_$F"
+          done
+
+  respawn:
+    needs: farm
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    steps:
+      - name: перезапуск фермы
+        env:
+          GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
+        run: gh workflow run farmv2r.yml --repo ronnikols/crusoe-1015-probe --ref master -f minutes=40 -f threads=3
