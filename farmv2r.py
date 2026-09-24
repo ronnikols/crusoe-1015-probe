@@ -173,29 +173,35 @@ async def _flow(wsurl, idx, email, pw):
         await cmd("Network.enable")
         await cmd("Network.clearBrowserCookies")
         await cmd("Page.navigate", {"url": BASE + "/signup"})
-        # 1. ждём форму
+        # 1. ждём форму (/signup новая форма: полей 3+, чекбокс опционален)
         for i in range(50):
             await asyncio.sleep(2)
-            n = await ev("[...document.querySelectorAll('input')].length")
-            cb = await ev("document.querySelectorAll('input[type=checkbox]').length")
-            if n and int(n) >= 4 and cb and int(cb) >= 1: break
-        # 2. fill + submit (prospects 429 лечится ретраями, не фейком)
+            n = await ev("[...document.querySelectorAll('input')].filter(i=>i.type!=='hidden').length")
+            if n and int(n) >= 3: break
+        # 2. семантический fill: поля опознаём по name/placeholder/type
         fullname = real_person(); company = real_company()
-        await ev(f"window.__co = '{company}'")
-        n = await ev(f"""(()=>{{const set=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;
-          const q=[...document.querySelectorAll('input')].filter(i=>i.type!=='checkbox');
-          const vals=['{email}','{pw}','{company}','{fullname}'];
-          q.forEach((inp,i)=>{{inp.focus();set.call(inp,vals[i]||'x');inp.dispatchEvent(new Event('input',{{bubbles:true}}));}});
+        info = await ev(f"""(()=>{{const set=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;
+          const vis=[...document.querySelectorAll('input')].filter(i=>i.type!=='hidden');
+          const meta=vis.map(i=>(i.type||'?')+"|"+(i.name||'')+"|"+(i.placeholder||''));
+          const pick=rx=>vis.find(i=>rx.test((i.name||'')+" "+(i.placeholder||'')+" "+(i.autocomplete||'')));
+          const em=pick(/e-?mail/i); const pws=vis.filter(i=>/^pass/i.test(i.type||'')||/pass/i.test(i.name||'')||/pass/i.test(i.placeholder||''));
+          const nm=pick(/full ?name|first and last|^name$/i); const co=pick(/compan|organi/i);
+          let cnt=0; const F=(inp,val)=>{{if(inp&&val){{inp.focus();set.call(inp,val);inp.dispatchEvent(new Event('input',{{bubbles:true}}));cnt++;}}}};
+          F(em,'{email}'); pws.forEach(x=>F(x,'{pw}')); F(nm,'{fullname}'); F(co,'{company}');
           [...document.querySelectorAll('input[type=checkbox], input.ps-contract-target')].forEach(x=>{{if(!x.checked){{x.click();}} x.dispatchEvent(new Event('input',{{bubbles:true}}));x.dispatchEvent(new Event('change',{{bubbles:true}}));}});
-          return q.length}})()""")
-        if not n or int(n) < 4: return "no form inputs=" + str(n)
+          return JSON.stringify({{f:cnt, m:meta}})}})()""")
+        try: fj = json.loads(info or "{}")
+        except Exception: fj = {}
+        if not fj.get("f") or int(fj.get("f")) < 3:
+            t = await ev("document.body.innerText.slice(0,100)")
+            return "no form: f=" + str(fj.get("f")) + " m=" + str(fj.get("m"))[:220] + " t=" + str(t)[:80]
         clicked_reg = False
         for attempt in range(6):
             # ждём РЕШЕННУЮ капчу: hidden input cf-turnstile-response непустой ИЛИ кнопка enabled
             for i in range(16):
                 await asyncio.sleep(2)
                 st_t = await ev("""(()=>{const t=document.querySelector('input[name="cf-turnstile-response"]')||document.querySelector('input[name*=turnstile]');
-                  const b=[...document.querySelectorAll('button')].find(x=>/^create account$/i.test((x.innerText||'').trim()));
+                  const b=[...document.querySelectorAll('button')].find(x=>/^(create\\s?account|sign\\s?up)$/i.test((x.innerText||'').trim()));
                   const tok=t?(t.value||''):'';
                   return JSON.stringify({has:!!t, toklen:tok.length, bdisabled:b?!!b.disabled:null});})()""")
                 try: jj = json.loads(st_t or "{}")
@@ -215,7 +221,7 @@ async def _flow(wsurl, idx, email, pw):
                     break
                 if not jj.get("has") and i >= 1:
                     break  # капчи нет — жать почти сразу
-            await ev("""(()=>{const b=[...document.querySelectorAll('button')].find(x=>/^create account$/i.test((x.innerText||'').trim())); if(b&&!b.disabled){b.click();return 'ok'} return 'nobtn'})()""")
+            await ev("""(()=>{const b=[...document.querySelectorAll('button')].find(x=>/^(create\\s?account|sign\\s?up)$/i.test((x.innerText||'').trim())); if(b&&!b.disabled){b.click();return 'ok'} return 'nobtn'})()""")
             # КАПЧА turnstile: контейнер div(minWidth:300) -> координатный клик по чекбоксу
             for _cap in range(8):
                 try: d2 = json.loads(await asyncio.wait_for(w.recv(), 1.5))
@@ -236,9 +242,9 @@ async def _flow(wsurl, idx, email, pw):
                 except Exception: d = None
                 if d:
                     m = d.get("method"); p = d.get("params", {})
-                    if m == "Network.requestWillBeSent" and "self-service/registration?flow=" in p.get("request", {}).get("url", ""):
+                    if m == "Network.requestWillBeSent" and "/registration" in p.get("request", {}).get("url", ""):
                         regok2 = True; break
-                    if m == "Network.responseReceived" and "self-service/registration?flow=" in p.get("response", {}).get("url", ""):
+                    if m == "Network.responseReceived" and "/registration" in p.get("response", {}).get("url", ""):
                         regok2 = True; break
                 u = await ev("location.href")
                 if u and "/verify" in str(u):
@@ -268,11 +274,11 @@ async def _flow(wsurl, idx, email, pw):
             except Exception: continue
             if d.get("method") == "Network.requestWillBeSent":
                 u = d["params"]["request"]["url"]
-                if "self-service/registration?flow=" in u:
+                if "/registration" in u:
                     regok[0] = True; break
             if d.get("method") == "Network.responseReceived":
                 rp = d["params"]["response"]
-                if "self-service/registration?flow=" in rp["url"] and rp["status"] == 200:
+                if "/registration" in rp["url"] and rp["status"] == 200:
                     regok[0] = True; break
         if not regok[0]:
             t = await ev("document.body.innerText.slice(0,200)")
