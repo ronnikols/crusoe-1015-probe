@@ -157,7 +157,7 @@ async def _flow(wsurl, idx, email, pw):
             return None
         await cmd("Network.enable")
         await cmd("Network.clearBrowserCookies")
-        await cmd("Page.navigate", {"url": BASE + "/request"})
+        await cmd("Page.navigate", {"url": BASE + "/signup"})
         # 1. ждём форму
         for i in range(50):
             await asyncio.sleep(2)
