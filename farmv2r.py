@@ -194,8 +194,8 @@ async def _flow(wsurl, idx, email, pw):
               pws.forEach(x=>F(x,'{pw}')); F(nm,'{fullname}'); F(co,'{company}');
               const rads=vis.filter(i=>i.type==='radio');
               const rad=rads.find(r=>/create|sign ?up|register|new/i.test(lab(r)));
-              let rc=0; if(rad){{rad.click();rc=1;}}
-              const btn=[...document.querySelectorAll('button')].find(b=>/^(create account|sign ?up|next|continue|register|submit|get started)$/i.test((b.innerText||'').trim())&&!b.disabled);
+              let rc=0; if(rad){{rad.click();rc=1;}} else if(rads.length){{rads[0].click();rc=2;}}
+              const btn=[...document.querySelectorAll('button')].find(b=>/^(create account|sign ?up|next|continue|register|submit|get started|log ?in|sign ?in|log in to continue)$/i.test((b.innerText||'').trim())&&!b.disabled);
               let bc=0; if(btn){{btn.click();bc=1;}}
               return JSON.stringify({{f:cnt, rc:rc, bc:bc, m:meta}})}})()""")
             try: fj = json.loads(info or "{}")
@@ -208,7 +208,8 @@ async def _flow(wsurl, idx, email, pw):
                 return "no form: f=" + str(fj.get("f")) + " m=" + str(fj.get("m"))[:300] + " t=" + str(t)[:250]
             await asyncio.sleep(8)
         if (res.get("f") or 0) < 3:
-            return "no form2: " + str(res)[:250]
+            tt = await ev("document.body.innerText.slice(0,300)")
+            return "no form2: t=" + str(tt)[:200] + " | " + str(res)[:200]
         clicked_reg = False
         for attempt in range(6):
             # ждём РЕШЕННУЮ капчу: hidden input cf-turnstile-response непустой ИЛИ кнопка enabled
