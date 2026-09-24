@@ -173,28 +173,42 @@ async def _flow(wsurl, idx, email, pw):
         await cmd("Network.enable")
         await cmd("Network.clearBrowserCookies")
         await cmd("Page.navigate", {"url": BASE + "/signup"})
-        # 1. ждём форму (/signup новая форма: полей 3+, чекбокс опционален)
+        # 1. ждём форму (новый флоу: лендинг-виджет identifier+radio, профиль на шаге 2)
         for i in range(50):
             await asyncio.sleep(2)
             n = await ev("[...document.querySelectorAll('input')].filter(i=>i.type!=='hidden').length")
-            if n and int(n) >= 3: break
-        # 2. семантический fill: поля опознаём по name/placeholder/type
+            if n and int(n) >= 1: break
         fullname = real_person(); company = real_company()
-        info = await ev(f"""(()=>{{const set=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;
-          const vis=[...document.querySelectorAll('input')].filter(i=>i.type!=='hidden');
-          const meta=vis.map(i=>(i.type||'?')+"|"+(i.name||'')+"|"+(i.placeholder||''));
-          const pick=rx=>vis.find(i=>rx.test((i.name||'')+" "+(i.placeholder||'')+" "+(i.autocomplete||'')));
-          const em=pick(/e-?mail/i); const pws=vis.filter(i=>/^pass/i.test(i.type||'')||/pass/i.test(i.name||'')||/pass/i.test(i.placeholder||''));
-          const nm=pick(/full ?name|first and last|^name$/i); const co=pick(/compan|organi/i);
-          let cnt=0; const F=(inp,val)=>{{if(inp&&val){{inp.focus();set.call(inp,val);inp.dispatchEvent(new Event('input',{{bubbles:true}}));cnt++;}}}};
-          F(em,'{email}'); pws.forEach(x=>F(x,'{pw}')); F(nm,'{fullname}'); F(co,'{company}');
-          [...document.querySelectorAll('input[type=checkbox], input.ps-contract-target')].forEach(x=>{{if(!x.checked){{x.click();}} x.dispatchEvent(new Event('input',{{bubbles:true}}));x.dispatchEvent(new Event('change',{{bubbles:true}}));}});
-          return JSON.stringify({{f:cnt, m:meta}})}})()""")
-        try: fj = json.loads(info or "{}")
-        except Exception: fj = {}
-        if not fj.get("f") or int(fj.get("f")) < 3:
-            t = await ev("document.body.innerText.slice(0,100)")
-            return "no form: f=" + str(fj.get("f")) + " m=" + str(fj.get("m"))[:220] + " t=" + str(t)[:80]
+        # 2. многошаговый семантический флоу (до 3 раундов)
+        res = {}
+        for rnd in range(3):
+            info = await ev(f"""(()=>{{const set=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;
+              const vis=[...document.querySelectorAll('input')].filter(i=>i.type!=='hidden');
+              const lab=i=>((i.labels&&i.labels[0])?i.labels[0].innerText.trim():'')+"#"+(i.getAttribute('aria-label')||'')+"#"+(i.name||'')+"#"+(i.placeholder||'')+"#"+(i.type||'');
+              const meta=vis.map(i=>(i.type||'?')+"|"+lab(i)).slice(0,8);
+              const pick=rx=>vis.find(i=>rx.test(lab(i)));
+              const em=pick(/e-?mail|identifier/i); const pws=vis.filter(i=>/pass/i.test(lab(i)));
+              const nm=pick(/full ?name|first and last|^name#/i); const co=pick(/compan|organi/i);
+              let cnt=0; const F=(inp,val)=>{{if(inp&&val){{inp.focus();set.call(inp,val);inp.dispatchEvent(new Event('input',{{bubbles:true}}));cnt++;}}}};
+              if(em){{F(em,'{email}');}}
+              pws.forEach(x=>F(x,'{pw}')); F(nm,'{fullname}'); F(co,'{company}');
+              const rads=vis.filter(i=>i.type==='radio');
+              const rad=rads.find(r=>/create|sign ?up|register|new/i.test(lab(r)));
+              let rc=0; if(rad){{rad.click();rc=1;}}
+              const btn=[...document.querySelectorAll('button')].find(b=>/^(create account|sign ?up|next|continue|register|submit|get started)$/i.test((b.innerText||'').trim())&&!b.disabled);
+              let bc=0; if(btn){{btn.click();bc=1;}}
+              return JSON.stringify({{f:cnt, rc:rc, bc:bc, m:meta}})}})()""")
+            try: fj = json.loads(info or "{}")
+            except Exception: fj = {}
+            res = fj
+            if (fj.get("f") or 0) >= 3 and not fj.get("rc"):
+                break
+            if rnd == 0 and not (fj.get("f") or 0) and not fj.get("rc"):
+                t = await ev("document.body.innerText.slice(0,300)")
+                return "no form: f=" + str(fj.get("f")) + " m=" + str(fj.get("m"))[:300] + " t=" + str(t)[:250]
+            await asyncio.sleep(8)
+        if (res.get("f") or 0) < 3:
+            return "no form2: " + str(res)[:250]
         clicked_reg = False
         for attempt in range(6):
             # ждём РЕШЕННУЮ капчу: hidden input cf-turnstile-response непустой ИЛИ кнопка enabled
