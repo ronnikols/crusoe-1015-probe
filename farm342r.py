@@ -462,7 +462,7 @@ async def _flow(wsurl, idx, email, pw, sid=None):
                         f.write(f"{email}:{key}:None\n")
                 except Exception:
                     pass
-                return "KEY:" + key[:18]
+                return "KEYFULL:" + key
             return "acc-done(nokey " + str(kk)[:24] + ")"
         # ПРЕ-КЛЮЧ: сессия от verify может уже быть живой — пробуем API сразу
         pre = await ev("""(async()=>{try{
@@ -565,8 +565,8 @@ def worker(idx):
             em = "cr" + rnd(9) + "@maildrop.cc"
         r = one_account(idx, em, sid=sid)
         log(f"w{idx} {em}: {r}")
-        if isinstance(r, str) and r.startswith("KEY:"):
-            key = r[4:].strip()
+        if isinstance(r, str) and (r.startswith("KEY:") or r.startswith("KEYFULL:")):
+            key = r.split(":", 1)[1].strip() if r.startswith("KEYFULL:") else r[4:].strip()
             al = alive_check(key)
             with stl:
                 st["ok"] += 1; st["alive"] += 1 if al else 0
