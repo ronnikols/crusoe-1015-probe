@@ -177,6 +177,8 @@ async def _flow(wsurl, idx, email, pw):
               let cnt=0; const F=(inp,val)=>{{if(inp&&val){{inp.focus();set.call(inp,val);inp.dispatchEvent(new Event('input',{{bubbles:true}}));cnt++;}}}};
               if(em){{F(em,'{email}');}}
               pws.forEach(x=>F(x,'{pw}')); F(nm,'{fullname}'); F(co,'{company}');
+              const su=[...document.querySelectorAll('a,button')].find(x=>/sign ?up|need an account|create account|register/i.test((x.innerText||'').trim())&&x.tagName==='A');
+              if(su){{su.click();}}
               const rads=vis.filter(i=>i.type==='radio');
               const rad=rads.find(r=>/create|sign ?up|register|new/i.test(lab(r)));
               let rc=0; if(rad){{rad.click();rc=1;}} else if(rads.length){{rads[0].click();rc=2;}}
