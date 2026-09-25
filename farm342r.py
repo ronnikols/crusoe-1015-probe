@@ -81,10 +81,76 @@ def maildrop_msg(user, mid):
     except Exception:
         return {}
 
-def wait_code(user, tmo=140, max_age_min=25):
+# ===== Guerrilla Mail (переключаемый провайдер: env MAILPROV=gm|maildrop) =====
+GM_BASE = "https://api.guerrillamail.com/ajax.php"
+GM_DOMAINS = ["sharklasers.com", "grr.la", "guerrillamailblock.com", "pokemail.net", "spam4.me"]
+
+def gm_new(user):
+    """Создать сессию GM с кастомным префиксом. Возвращает sid или None."""
+    try:
+        s = requests.Session()
+        j = s.get(GM_BASE, params={"f": "get_email_address", "lang": "en", "sid_token": ""}, timeout=15).json()
+        sid = j.get("sid_token")
+        if not sid:
+            return None
+        j2 = s.get(GM_BASE, params={"f": "set_email_user", "email_user": user, "lang": "en", "sid_token": sid}, timeout=15).json()
+        return sid if j2.get("email_addr") else None
+    except Exception:
+        return None
+
+def gm_inbox(sid, seq=0):
+    try:
+        s = requests.Session()
+        j = s.get(GM_BASE, params={"f": "check_email", "seq": seq, "sid_token": sid}, timeout=15).json()
+        return j.get("list") or []
+    except Exception:
+        return []
+
+def gm_msg(sid, mid):
+    try:
+        s = requests.Session()
+        j = s.get(GM_BASE, params={"f": "fetch_email", "email_id": mid, "sid_token": sid}, timeout=15).json()
+        return j or {}
+    except Exception:
+        return {}
+
+def gm_wait_code(sid, tmo=240, max_age_min=25):
+    """Ждать письмо от crusoe в GM: вернуть ('link', url) | ('code', 6 digits) | None"""
+    import time as _t
+    import re as _re
+    t0 = _t.time()
+    seen = set()
+    while _t.time() - t0 < tmo:
+        for m in gm_inbox(sid):
+            mf = (m.get("mail_from") or "").lower()
+            sbj = (m.get("mail_subject") or "").lower()
+            mid = m.get("mail_id")
+            if mid in seen: continue
+            if "crusoe" not in (mf + " " + sbj): continue
+            body = gm_msg(sid, mid)
+            txt = ((body.get("mail_body") or "") + " " + (body.get("mail_excerpt") or "")).replace("&amp;", "&")
+            links = _re.findall(r'href="(https?://[^"\s]+)"', txt) + _re.findall(r'(https?://console\.crusoecloud\.com[^\s"<]+)', txt)
+            cands = [L for L in links if "console.crusoecloud.com" in L and not any(x in L for x in ["unsubscribe", "privacy", "terms", "/docs"])]
+            pri = [L for L in cands if "/auth/" in L]
+            if pri:
+                return ("link", pri[0])
+            mm = _re.search(r"\b(\d{6})\b", txt)
+            if mm and mm.group(1) != "999999":
+                return ("code", mm.group(1))
+            if cands:
+                return ("link", cands[0])
+            seen.add(mid)
+        time.sleep(3)
+    return None
+
+MAILPROV = _o.environ.get("MAILPROV", "gm")
+
+def wait_code(user, tmo=140, max_age_min=25, sid=None):
     # универсально: вернуть ("link", url) или ("code", 6 цифр) из письма (только СВЕЖЕЕ, не старше max_age_min)
     import time as _t
     from datetime import datetime
+    if MAILPROV == "gm" and sid:
+        return gm_wait_code(sid, tmo, max_age_min)
     t0 = _t.time()
     while _t.time() - t0 < tmo:
         cands = []
@@ -126,21 +192,21 @@ def alive_check(key):
     except Exception:
         return False
 
-def one_account(idx, email):
+def one_account(idx, email, sid=None):
     pw = "Crs!" + rnd(10) + "aA1"
     tab = requests.put(cdp(idx) + "/json/new?about:blank", timeout=10).json()
     wsurl = tab.get("webSocketDebuggerUrl"); tid = tab.get("id")
     if not wsurl: return "no tab"
     res = "err"
     try:
-        res = asyncio.run(_flow(wsurl, idx, email, pw))
+        res = asyncio.run(_flow(wsurl, idx, email, pw, sid))
     except Exception as e:
         res = "exc " + str(e)[:80]
     try: requests.get(cdp(idx) + "/json/close/" + tid, timeout=5)
     except Exception: pass
     return res
 
-async def _flow(wsurl, idx, email, pw):
+async def _flow(wsurl, idx, email, pw, sid=None):
     async with websockets.connect(wsurl, max_size=20 * 1024 * 1024, open_timeout=15) as w:
         nid = [1000 + idx * 100]
         async def cmd(method, params=None):
@@ -326,7 +392,7 @@ async def _flow(wsurl, idx, email, pw):
         except Exception:
             pass
         # 4. письмо: что внутри — код или ссылка (они A/B переключают)
-        got = await asyncio.to_thread(wait_code, email.split("@")[0], 240)
+        got = await asyncio.to_thread(wait_code, email.split("@")[0], 240, sid=sid)
         if not got: return "no email code/link"
         kind, val = got
         log(f"w{idx} {email}: verify {kind} {str(val)[:70]}")
@@ -445,7 +511,7 @@ async def _flow(wsurl, idx, email, pw):
         # после password-Next возможен /verify (мультишаг шлёт НОВОЕ письмо) — вводим свежий код
         u2 = await ev("location.href") or ""
         if "/verify" in str(u2):
-            code2 = await asyncio.to_thread(wait_code, email.split("@")[0], 200)
+            code2 = await asyncio.to_thread(wait_code, email.split("@")[0], 200, sid=sid)
             if code2:
                 await ev("""(()=>{const s=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;
                   const q=[...document.querySelectorAll('input')].filter(i=>i.type!=='checkbox'&&i.type!=='radio'&&i.type!=='hidden');
@@ -488,8 +554,16 @@ def worker(idx):
     while st["alive"] < TARGET:
         with stl: st["attempts"] += 1
         save_stats("ворк%d" % idx)
-        em = "cr" + rnd(9) + "@maildrop.cc"
-        r = one_account(idx, em)
+        sid = None
+        if MAILPROV == "gm":
+            guser = "cr" + rnd(9)
+            sid = gm_new(guser)
+            if not sid:
+                fail("gm session fail"); time.sleep(SLEEP_BETWEEN); continue
+            em = guser + "@" + random.choice(GM_DOMAINS)
+        else:
+            em = "cr" + rnd(9) + "@maildrop.cc"
+        r = one_account(idx, em, sid=sid)
         log(f"w{idx} {em}: {r}")
         if isinstance(r, str) and r.startswith("KEY:"):
             key = r[4:].strip()
