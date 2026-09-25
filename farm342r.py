@@ -203,18 +203,20 @@ async def _flow(wsurl, idx, email, pw):
             return "no form2: t=" + str(tt)[:200] + " | " + str(res)[:200]
         clicked_reg = False
         netdiag = []
-        for attempt in range(6):
-            # ждём РЕШЕННУЮ капчу: hidden input cf-turnstile-response непустой ИЛИ кнопка enabled
-            for i in range(16):
+        for attempt in range(8):
+            # ждём РЕШЕННУЮ капчу: токен в любом hidden input (инвизибл-режим), iframe-детект
+            for i in range(23):
                 await asyncio.sleep(2)
                 st_t = await ev("""(()=>{const t=document.querySelector('input[name="cf-turnstile-response"]')||document.querySelector('input[name*=turnstile]');
+                  const hid=[...document.querySelectorAll('input[type=hidden]')].filter(h=>(h.value||'').length>80).map(h=>h.value.length)[0]||0;
+                  const ifr=!!document.querySelector('iframe[src*=challenges.cloudflare]');
                   const b=[...document.querySelectorAll('button')].find(x=>/^(create\\s?account|sign\\s?up)$/i.test((x.innerText||'').trim()));
                   const tok=t?(t.value||''):'';
-                  return JSON.stringify({has:!!t, toklen:tok.length, bdisabled:b?!!b.disabled:null});})()""")
+                  return JSON.stringify({has:!!t, toklen:tok.length, hid:hid, ifr:ifr, bdisabled:b?!!b.disabled:null});})()""")
                 try: jj = json.loads(st_t or "{}")
                 except Exception: jj = {}
                 # клик по виджету если interactive (однократно за попытку)
-                if jj.get("has") and not jj.get("toklen") and i == 4:
+                if (jj.get("has") or jj.get("ifr")) and not jj.get("toklen") and i == 4:
                     rect = await ev("""(()=>{const w=document.querySelector('.cf-turnstile')||document.querySelector('[class*=turnstile]')||document.querySelector('iframe[src*=challenges.cloudflare]');
                       if(!w) return null; const r=w.getBoundingClientRect(); return JSON.stringify({x:r.x+r.width/2,y:r.y+r.height/2});})()""")
                     if rect:
@@ -223,11 +225,14 @@ async def _flow(wsurl, idx, email, pw):
                             for tp in ("mousePressed", "mouseReleased"):
                                 await cmd("Input.dispatchMouseEvent", {"type": tp, "x": x, "y": y, "button": "left", "clickCount": 1})
                         except Exception: pass
-                # строго: если turnstile-input есть — ждать его токен
-                if jj.get("toklen"):
+                # токен есть (явный turnstile-input ИЛИ любой hidden>80 симв) — сабмитить
+                if jj.get("toklen") or jj.get("hid"):
                     break
-                if not jj.get("has") and i >= 1:
-                    break  # капчи нет — жать почти сразу
+                # виджет не появился вовсе после 3 циклов — жать что есть
+                if i >= 3 and not jj.get("ifr") and not jj.get("has"):
+                    break
+                if i >= 22:
+                    break  # 45с исчерпано
             clickres = await ev("""(()=>{const b=[...document.querySelectorAll('button')].find(x=>/^(create\\s?account|sign\\s?up)$/i.test((x.innerText||'').trim()));
               const st={};
               if(b){st.btxt=(b.innerText||'').trim(); st.bdis=!!b.disabled; st.btype=b.type||'';
