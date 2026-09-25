@@ -156,6 +156,8 @@ async def _flow(wsurl, idx, email, pw):
                 if d.get("id") == myid: return d.get("result", {}).get("result", {}).get("value")
             return None
         await cmd("Network.enable")
+        await cmd("Runtime.enable")
+        await ev("(()=>{window.__errs=[]; window.addEventListener('error',e=>window.__errs.push(String(e.message).slice(0,150))); window.addEventListener('unhandledrejection',e=>window.__errs.push('rej:'+String(e.reason).slice(0,150))); return 1})()")
         await cmd("Network.clearBrowserCookies")
         await cmd("Page.navigate", {"url": BASE + "/signup"})
         # 1. ждём форму (новый флоу: лендинг-виджет identifier+radio, профиль на шаге 2)
@@ -233,6 +235,9 @@ async def _flow(wsurl, idx, email, pw):
               if(b&&!b.disabled){b.click();}
               return JSON.stringify(st)})()""")
             netdiag.append("click:" + str(clickres)[:400] + " ts:" + str(jj))
+            if attempt == 2:
+                alt = await ev("""(()=>{const fm=document.querySelector('form'); if(fm&&fm.requestSubmit){fm.requestSubmit(); return 'reqSubmit'} const pw=[...document.querySelectorAll('input[type=password]')][0]; if(pw){pw.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true})); return 'enterKey'} return 'noform'})()""")
+                netdiag.append("alt:" + str(alt))
             # сетевое окно стартует СРАЗУ после клика; капча-клики внутри окна
             t0 = asyncio.get_event_loop().time()
             regok2 = False
@@ -282,9 +287,12 @@ async def _flow(wsurl, idx, email, pw):
             if u and ("/verify" in str(u) or "/thanks" in str(u)):
                 clicked_reg = True
         if not clicked_reg:
-            t = await ev("document.body.innerText.slice(0,150)")
-            nd = (" | net[" + "; ".join(netdiag) + "]") if netdiag else " | net[NO-REQ: форма не отправилась, запросов /registration не было]"
-            return "reg-not-sent: " + str(t)[:100] + nd
+            t = await ev("document.body.innerText.slice(0,1500)")
+            u2 = await ev("location.href")
+            errs = await ev("""(()=>{const e=[...document.querySelectorAll('[class*=error],[class*=Error],[role=alert],[class*=warn],[class*=invalid]')].map(x=>(x.innerText||'').trim()).filter(Boolean); return JSON.stringify(e.slice(0,5))})()""")
+            jserr = await ev("""(()=>{window.__errs=window.__errs||[]; return JSON.stringify(window.__errs.slice(0,5))})()""")
+            nd = (" | net[" + "; ".join(netdiag) + "]") if netdiag else " | net[NO-REQ]"
+            return "reg-not-sent: href=" + str(u2) + " | t=" + str(t)[:1200] + " | errs=" + str(errs)[:300] + " | js=" + str(jserr)[:200] + nd
         # 3. register подтверждён (clicked_reg) — сетевое ожидание не нужно
         regok = [clicked_reg]
         t0 = asyncio.get_event_loop().time()
