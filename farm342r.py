@@ -224,8 +224,15 @@ async def _flow(wsurl, idx, email, pw):
                     break
                 if not jj.get("has") and i >= 1:
                     break  # капчи нет — жать почти сразу
-            clickres = await ev("""(()=>{const b=[...document.querySelectorAll('button')].find(x=>/^(create\\s?account|sign\\s?up)$/i.test((x.innerText||'').trim())); if(b&&!b.disabled){b.click();return 'ok'} if(b&&b.disabled){return 'disabled'} return 'nobtn'})()""")
-            netdiag.append("click:" + str(clickres) + " ts:" + str(jj))
+            clickres = await ev("""(()=>{const b=[...document.querySelectorAll('button')].find(x=>/^(create\\s?account|sign\\s?up)$/i.test((x.innerText||'').trim()));
+              const st={};
+              if(b){st.btxt=(b.innerText||'').trim(); st.bdis=!!b.disabled; st.btype=b.type||'';
+                const fm=b.form||document.querySelector('form'); st.inform=!!(b.form); st.nforms=document.querySelectorAll('form').length;
+                if(fm){st.valid=fm.checkValidity(); st.req=[...fm.querySelectorAll('[required]')].filter(e=>!e.value||!e.value.trim()).map(e=>(e.labels&&e.labels[0]?e.labels[0].innerText.trim():'')||e.name||e.type).slice(0,6);}
+                st.bhtml=(b.outerHTML||'').slice(0,150);}
+              if(b&&!b.disabled){b.click();}
+              return JSON.stringify(st)})()""")
+            netdiag.append("click:" + str(clickres)[:400] + " ts:" + str(jj))
             # КАПЧА turnstile: контейнер div(minWidth:300) -> координатный клик по чекбоксу
             for _cap in range(8):
                 try: d2 = json.loads(await asyncio.wait_for(w.recv(), 1.5))
