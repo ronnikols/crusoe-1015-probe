@@ -196,6 +196,7 @@ async def _flow(wsurl, idx, email, pw):
             tt = await ev("document.body.innerText.slice(0,300)")
             return "no form2: t=" + str(tt)[:200] + " | " + str(res)[:200]
         clicked_reg = False
+        netdiag = []
         for attempt in range(6):
             # ждём РЕШЕННУЮ капчу: hidden input cf-turnstile-response непустой ИЛИ кнопка enabled
             for i in range(16):
@@ -242,10 +243,17 @@ async def _flow(wsurl, idx, email, pw):
                 except Exception: d = None
                 if d:
                     m = d.get("method"); p = d.get("params", {})
-                    if m == "Network.requestWillBeSent" and "/registration" in p.get("request", {}).get("url", ""):
-                        regok2 = True; break
-                    if m == "Network.responseReceived" and "/registration" in p.get("response", {}).get("url", ""):
-                        regok2 = True; break
+                    if m == "Network.requestWillBeSent":
+                        _u = p.get("request", {}).get("url", "")
+                        if "/registration" in _u or "/self-service" in _u:
+                            if len(netdiag) < 6: netdiag.append("req>" + _u.split("?")[0][-60:])
+                            regok2 = True; break
+                    if m == "Network.responseReceived":
+                        rp = p.get("response", {})
+                        if "/registration" in rp.get("url", "") or "/self-service" in rp.get("url", ""):
+                            if len(netdiag) < 6: netdiag.append("resp<" + str(rp.get("status")) + " " + rp.get("url", "").split("?")[0][-60:])
+                            if rp.get("status") == 200:
+                                regok2 = True; break
                 u = await ev("location.href")
                 if u and "/verify" in str(u):
                     regok2 = True; break
@@ -265,7 +273,8 @@ async def _flow(wsurl, idx, email, pw):
                 clicked_reg = True
         if not clicked_reg:
             t = await ev("document.body.innerText.slice(0,150)")
-            return "reg-not-sent: " + str(t)[:100]
+            nd = (" | net[" + "; ".join(netdiag) + "]") if netdiag else " | net[NO-REQ: форма не отправилась, запросов /registration не было]"
+            return "reg-not-sent: " + str(t)[:100] + nd
         # 3. register подтверждён (clicked_reg) — сетевое ожидание не нужно
         regok = [clicked_reg]
         t0 = asyncio.get_event_loop().time()
