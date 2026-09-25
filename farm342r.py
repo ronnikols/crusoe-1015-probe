@@ -233,22 +233,20 @@ async def _flow(wsurl, idx, email, pw):
               if(b&&!b.disabled){b.click();}
               return JSON.stringify(st)})()""")
             netdiag.append("click:" + str(clickres)[:400] + " ts:" + str(jj))
-            # КАПЧА turnstile: контейнер div(minWidth:300) -> координатный клик по чекбоксу
-            for _cap in range(8):
-                try: d2 = json.loads(await asyncio.wait_for(w.recv(), 1.5))
-                except Exception: d2 = None
-                rect = await ev("""(()=>{const d=[...document.querySelectorAll('div')].find(e=>getComputedStyle(e).minWidth==='300px');if(!d)return null;const b=d.getBoundingClientRect();return JSON.stringify({x:Math.round(b.x),y:Math.round(b.y),h:Math.round(b.height)})})()""")
-                if rect:
-                    try:
-                        c = json.loads(rect)
-                        cx, cy = c["x"] + 22, c["y"] + c["h"] // 2
-                        for tp in ("mouseMoved", "mousePressed", "mouseReleased"):
-                            await cmd("Input.dispatchMouseEvent", {"type": tp, "x": cx, "y": cy, "button": "left", "clickCount": 1})
-                    except Exception: pass
-                await asyncio.sleep(2.5)
+            # сетевое окно стартует СРАЗУ после клика; капча-клики внутри окна
             t0 = asyncio.get_event_loop().time()
             regok2 = False
-            while asyncio.get_event_loop().time() - t0 < 18:
+            while asyncio.get_event_loop().time() - t0 < 38:
+                # капча turnstile: контейнер div(minWidth:300) -> координатный клик по чекбоксу (первые 20с)
+                if asyncio.get_event_loop().time() - t0 < 20:
+                    rect = await ev("""(()=>{const d=[...document.querySelectorAll('div')].find(e=>getComputedStyle(e).minWidth==='300px');if(!d)return null;const b=d.getBoundingClientRect();return JSON.stringify({x:Math.round(b.x),y:Math.round(b.y),h:Math.round(b.height)})})()""")
+                    if rect:
+                        try:
+                            c = json.loads(rect)
+                            cx, cy = c["x"] + 22, c["y"] + c["h"] // 2
+                            for tp in ("mouseMoved", "mousePressed", "mouseReleased"):
+                                await cmd("Input.dispatchMouseEvent", {"type": tp, "x": cx, "y": cy, "button": "left", "clickCount": 1})
+                        except Exception: pass
                 try: d = json.loads(await asyncio.wait_for(w.recv(), 2))
                 except Exception: d = None
                 if d:
