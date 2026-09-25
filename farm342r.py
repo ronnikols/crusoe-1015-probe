@@ -247,13 +247,15 @@ async def _flow(wsurl, idx, email, pw):
                     m = d.get("method"); p = d.get("params", {})
                     if m == "Network.requestWillBeSent":
                         _u = p.get("request", {}).get("url", "")
+                        if len(netdiag) < 14 and not any(x in _u for x in ["google", "gstatic", "schema", "favicon", ".png", ".woff", "segment", "posthog", "sentry"]):
+                            netdiag.append("req>" + _u.split("?")[0][-70:])
                         if "/registration" in _u or "/self-service" in _u:
-                            if len(netdiag) < 6: netdiag.append("req>" + _u.split("?")[0][-60:])
                             regok2 = True; break
                     if m == "Network.responseReceived":
                         rp = p.get("response", {})
+                        if len(netdiag) < 14 and not any(x in rp.get("url", "") for x in ["google", "gstatic", "schema", "favicon", ".png", ".woff", "segment", "posthog", "sentry"]):
+                            netdiag.append("resp<" + str(rp.get("status")) + " " + rp.get("url", "").split("?")[0][-70:])
                         if "/registration" in rp.get("url", "") or "/self-service" in rp.get("url", ""):
-                            if len(netdiag) < 6: netdiag.append("resp<" + str(rp.get("status")) + " " + rp.get("url", "").split("?")[0][-60:])
                             if rp.get("status") == 200:
                                 regok2 = True; break
                 u = await ev("location.href")
